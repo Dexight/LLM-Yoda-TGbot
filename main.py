@@ -8,6 +8,7 @@ bot = telebot.TeleBot(API_TOKEN)
 
 # Словарь для хранения контекста пользователей (ключ - id пользователя)
 user_context = {}
+bot_wait_message = {}
 
 # Команда /start
 @bot.message_handler(commands=['start'])
@@ -46,6 +47,9 @@ def handle_message(message):
     user_id = message.from_user.id
     user_query = message.text
 
+    sent_message = bot.reply_to(message, "Хм...")
+    bot_wait_message[user_id] = sent_message.message_id
+
     # Обновляем контекст
     if user_id not in user_context:
         user_context[user_id] = []
@@ -64,6 +68,9 @@ def handle_message(message):
 
         # Запоминаем ответ
         user_context[user_id].append({"role": "assistant", "content": bot_reply})
+        # Удаляем предыдущее сообщение бота, если оно есть
+        if user_id in bot_wait_message:
+            bot.delete_message(chat_id=message.chat.id, message_id=bot_wait_message[user_id])
         bot.reply_to(message, bot_reply)
     else:
         bot.reply_to(message, 'Произошла ошибка при обращении к модели.')
