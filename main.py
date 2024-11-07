@@ -1,6 +1,7 @@
 import telebot
 import requests
 import jsons
+from queue import Queue
 from Class_ModelResponse import ModelResponse
 
 API_TOKEN = '7693885170:AAGF-1mI0p7cbASPAuEtBjD5L-pOi_K4lu4'
@@ -23,7 +24,7 @@ def send_welcome(message):
 # Команда /model
 @bot.message_handler(commands=['model'])
 def send_model_name(message):
-    response = requests.get('http://localhost:1234/v1/models')
+    response = requests.get('http://localhost:1234/v1/models', timeout=30)#30 секунд ожидания ответа сервера
     if response.status_code == 200:
         model_info = response.json()
         model_name = model_info['data'][0]['id']
@@ -47,8 +48,10 @@ def handle_message(message):
     user_id = message.from_user.id
     user_query = message.text
 
+    if user_id not in bot_wait_message:
+        bot_wait_message[user_id] = Queue()
     sent_message = bot.reply_to(message, "Хм...")
-    bot_wait_message[user_id] = sent_message.message_id
+    bot_wait_message[user_id].put(sent_message.message_id)
 
     # Обновляем контекст
     if user_id not in user_context:
@@ -60,7 +63,7 @@ def handle_message(message):
 
     # Формируем запрос, используя контекст предыдущих сообщений пользователя
     request = {"messages": user_context[user_id]}
-    response = requests.post('http://localhost:1234/v1/chat/completions', json=request)
+    response = requests.post('http://localhost:1234/v1/chat/completions', json=request, timeout=300)#5 минут ожидания ответа сервера
 
     if response.status_code == 200:
         model_response: ModelResponse = jsons.loads(response.text, ModelResponse)
@@ -68,9 +71,12 @@ def handle_message(message):
 
         # Запоминаем ответ
         user_context[user_id].append({"role": "assistant", "content": bot_reply})
-        # Удаляем предыдущее сообщение бота, если оно есть
+        
+        # Удаляем сообщение-ожидания, если оно есть
         if user_id in bot_wait_message:
-            bot.delete_message(chat_id=message.chat.id, message_id=bot_wait_message[user_id])
+            if bot_wait_message[user_id].qsize() > 0:
+                bot.delete_message(chat_id=message.chat.id, message_id=bot_wait_message[user_id].get())
+
         bot.reply_to(message, bot_reply)
     else:
         bot.reply_to(message, 'Произошла ошибка при обращении к модели.')
